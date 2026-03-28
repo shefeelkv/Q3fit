@@ -622,17 +622,45 @@ const billing = {
                 console.error("Image Generation failed for share, falling back to WA link immediately:", imgErr);
             }
 
-            // Fallback natively to WhatsApp link without the file attached, but try clipboard
-            if (!sharedViaAPI && imageBlob && navigator.clipboard && navigator.clipboard.write) {
+            // Fallback natively to WhatsApp link without the file attached, but try clipboard & auto-download
+            if (!sharedViaAPI && imageBlob) {
+                let clipboardSuccess = false;
+                if (navigator.clipboard && navigator.clipboard.write) {
+                    try {
+                        await navigator.clipboard.write([
+                            new ClipboardItem({
+                                [imageBlob.type]: imageBlob
+                            })
+                        ]);
+                        clipboardSuccess = true;
+                    } catch(clipErr) {
+                        console.error("Clipboard copy failed:", clipErr);
+                    }
+                }
+                
+                // Auto-download the image file for Desktop users
+                const blobUrl = window.URL.createObjectURL(imageBlob);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = blobUrl;
+                a.download = fileName;
+                document.body.appendChild(a);
+                
                 try {
-                    await navigator.clipboard.write([
-                        new ClipboardItem({
-                            [imageBlob.type]: imageBlob
-                        })
-                    ]);
-                    alert("Bill screenshot copied to clipboard! Please paste it in the WhatsApp chat that opens.");
-                } catch(clipErr) {
-                    console.error("Clipboard copy failed:", clipErr);
+                    a.click();
+                } catch(e) {
+                    // ignore
+                }
+                
+                setTimeout(() => {
+                    if(document.body.contains(a)) document.body.removeChild(a);
+                    window.URL.revokeObjectURL(blobUrl);
+                }, 2000);
+
+                if (clipboardSuccess) {
+                    alert("Bill screenshot copied to clipboard AND downloaded! Please paste (Ctrl+V) or drag it into the WhatsApp chat that opens.");
+                } else {
+                    alert("Bill screenshot has been downloaded! Please attach it to the WhatsApp chat that opens.");
                 }
             }
 
