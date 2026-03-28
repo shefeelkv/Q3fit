@@ -531,55 +531,6 @@ const billing = {
         }
     },
 
-    generateImageBlob: async function(format = 'jpeg') {
-        const originalElement = document.getElementById('print-area');
-        if(!originalElement) throw new Error("Print area not found");
-
-        const element = originalElement.cloneNode(true);
-        const images = element.getElementsByTagName('img');
-        for (let img of Array.from(images)) {
-            const origImg = document.getElementById(img.id) || document.querySelector(`img[src="${img.getAttribute('src')}"]`);
-            if (!origImg || origImg.naturalWidth === 0 || !origImg.complete) {
-                img.parentNode.removeChild(img);
-            }
-        }
-
-        const tempContainer = document.createElement('div');
-        tempContainer.style.cssText = "position: absolute; left: -9999px; top: -9999px; width: 800px; background: white; padding: 20px; z-index: -9999;";
-        tempContainer.appendChild(element);
-        document.body.appendChild(tempContainer);
-
-        tempContainer.offsetHeight;
-        await new Promise(r => setTimeout(r, 100));
-
-        try {
-            // Check if html2canvas is loaded globally
-            if (typeof html2canvas === 'undefined') {
-                throw new Error("html2canvas library is not loaded.");
-            }
-
-            const canvas = await html2canvas(tempContainer, {
-                scale: 2,
-                useCORS: true,
-                allowTaint: true,
-                logging: false,
-                ignoreElements: (node) => {
-                    return node.tagName === 'LINK' && node.href && (node.href.includes('fonts.googleapis') || node.href.includes('fonts.gstatic'));
-                }
-            });
-            
-            return new Promise((resolve, reject) => {
-                const mimeType = format === 'png' ? 'image/png' : 'image/jpeg';
-                canvas.toBlob((blob) => {
-                    if (blob) resolve(blob);
-                    else reject(new Error("Canvas to Blob failed"));
-                }, mimeType, 0.98);
-            });
-        } finally {
-            if(document.body.contains(tempContainer)) document.body.removeChild(tempContainer);
-        }
-    },
-
     shareBill: async function() {
         const btn = document.getElementById('btn-share-bill');
         let origContent = '';
@@ -598,14 +549,14 @@ const billing = {
             const grandTotalStr = document.getElementById('print-grand-total').innerText;
             
             const textMsg = `Thank you for shopping at Q3 Fit. Your bill total is ${grandTotalStr}.`;
-            const fileName = `Q3Fit-Bill-${billId.replace('#', '')}.png`;
+            const fileName = `Q3Fit-Bill-${billId.replace('#', '')}.pdf`;
 
-            let imageBlob = null;
+            let pdfBlob = null;
             let sharedViaAPI = false;
 
             try {
-                imageBlob = await this.generateImageBlob('png');
-                const file = new File([imageBlob], fileName, { type: 'image/png' });
+                pdfBlob = await this.generatePdfBlob(fileName);
+                const file = new File([pdfBlob], fileName, { type: 'application/pdf' });
 
                 if (navigator.canShare && navigator.canShare({ files: [file] })) {
                     await navigator.share({
@@ -618,28 +569,14 @@ const billing = {
                 } else {
                     console.log("Web Share API not supported for files, falling back to WA link.");
                 }
-            } catch(imgErr) {
-                console.error("Image Generation failed for share, falling back to WA link immediately:", imgErr);
+            } catch(pdfErr) {
+                console.error("PDF Generation failed for share, falling back to WA link immediately:", pdfErr);
             }
 
-            // Fallback natively to WhatsApp link without the file attached, but try clipboard & auto-download
-            if (!sharedViaAPI && imageBlob) {
-                let clipboardSuccess = false;
-                if (navigator.clipboard && navigator.clipboard.write) {
-                    try {
-                        await navigator.clipboard.write([
-                            new ClipboardItem({
-                                [imageBlob.type]: imageBlob
-                            })
-                        ]);
-                        clipboardSuccess = true;
-                    } catch(clipErr) {
-                        console.error("Clipboard copy failed:", clipErr);
-                    }
-                }
-                
-                // Auto-download the image file for Desktop users
-                const blobUrl = window.URL.createObjectURL(imageBlob);
+            // Fallback natively to WhatsApp link without the file attached, but auto-download the PDF
+            if (!sharedViaAPI && pdfBlob) {
+                // Auto-download the PDF file for Desktop users
+                const blobUrl = window.URL.createObjectURL(pdfBlob);
                 const a = document.createElement('a');
                 a.style.display = 'none';
                 a.href = blobUrl;
@@ -657,11 +594,7 @@ const billing = {
                     window.URL.revokeObjectURL(blobUrl);
                 }, 2000);
 
-                if (clipboardSuccess) {
-                    alert("Bill screenshot copied to clipboard AND downloaded! Please paste (Ctrl+V) or drag it into the WhatsApp chat that opens.");
-                } else {
-                    alert("Bill screenshot has been downloaded! Please attach it to the WhatsApp chat that opens.");
-                }
+                alert("Bill PDF has been downloaded to your device! Please attach it to the WhatsApp chat that opens.");
             }
 
             let waLink = `https://wa.me/`;
